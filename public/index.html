@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="theme-color" content="#000000"/>
+    <meta
+            name="description"
+            content="Web site created using create-react-app"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png"/>
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json"/>
+    <!--
+      Notice the use of %PUBLIC_URL% in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+    <title>React App</title>
+    <style>
+        html,
+        body {
+            padding: 0;
+            margin: 0;
+        }
+        .captureBtn {
+            padding:1.2rem;
+            border:1px #ccc solid;
+            border-radius:.3rem;
+            margin:1.2rem;
+            display:block;
+            color: black;
+            text-align:center;
+            text-decoration:none;
+        }
+    </style>
+</head>
+<body>
+<noscript>You need to enable JavaScript to run this app.</noscript>
+<div id="wheel_root"></div>
+<!--
+  This HTML file is a template.
+  If you open it directly in the browser, you will see an empty page.
+
+  You can add webfonts, meta tags, or analytics to this file.
+  The build step will place the bundled scripts into the <body> tag.
+
+  To begin the development, run `npm start` or `yarn start`.
+  To create a production bundle, use `npm run build` or `yarn build`.
+-->
+<div id='video_result' crossOrigin="anonymous"></div>
+<script>
+  // Here You can type your custom JavaScript...window.addEventListener('resize',()=>{console.log(window.innerWidth)});
+
+
+  function getSupportedMimeTypes() {
+    const VIDEO_TYPES = [
+      "webm",
+      "ogg",
+      "mp4",
+      "x-matroska"
+    ];
+    const VIDEO_CODECS = [
+      "vp9",
+      "vp9.0",
+      "vp8",
+      "vp8.0",
+      "avc1",
+      "av1",
+      "h265",
+      "h.265",
+      "h264",
+      "h.264",
+      "opus",
+    ];
+
+    const supportedTypes = [];
+    VIDEO_TYPES.forEach((videoType) => {
+      const type = `video/${videoType}`;
+      VIDEO_CODECS.forEach((codec) => {
+        const variations = [
+          `${type};codecs=${codec}`,
+          `${type};codecs:${codec}`,
+          `${type};codecs=${codec.toUpperCase()}`,
+          `${type};codecs:${codec.toUpperCase()}`
+        ]
+        variations.forEach(variation => {
+          if (MediaRecorder.isTypeSupported(variation))
+            supportedTypes.push(variation);
+        })
+      });
+      if (MediaRecorder.isTypeSupported(type)) supportedTypes.push(type);
+    });
+    return supportedTypes;
+  }
+
+  document.addEventListener('wheel_render', function () {
+
+    console.log('* Add &recordCanvas=1 to url to record canvas to video')
+    console.log('* Browser will ask for audio permissions - allow for sound')
+    console.log('* System Audio output should be set to internal audio (https://github.com/ExistentialAudio/BlackHole)')
+    console.log('* You can use one of supported encoding codecs instead of default by adding to url one of options in %cSupported video codecs','color:orange;font-weight:bold', 'log')
+    console.log('* Add &output=filename for giving custom filename')
+
+    const params = new URLSearchParams(window.location.search);
+
+    if(!params.get('recordCanvas')){return false;}
+
+    const _video = document.createElement('video');
+    _video.controls = true
+    _video.crossOrigin = "Anonymous";
+
+    const $canvas = document.querySelector('#wheel_drawing_canvas');
+    $canvas.crossOrigin = "Anonymous";
+    $canvas.setAttribute('crossOrigin', 'Anonymous');
+    $canvas.getContext('2d')['origin-clean'] = true;
+
+
+    const $root = document.querySelector('#video_result');
+
+    const downloadButton = document.createElement('a');
+    downloadButton.innerHTML = 'Download video';
+    downloadButton.classList.add("captureBtn");
+
+    const screenshot = document.createElement('a');
+    screenshot.innerHTML = 'Grab screenshot';
+    screenshot.classList.add("captureBtn");
+
+    const mimeType = params.get('mimeType');
+
+    console.groupCollapsed('%cSupported video codecs', 'color:orange');
+    getSupportedMimeTypes().forEach(c=>console.log('%c'+c, 'color:orange', `url param: &mimeType=${encodeURIComponent(c)}` ));
+    console.groupEnd();
+    console.log('Using codec:', mimeType || 'Browser\'s default')
+
+    $root.appendChild(screenshot);
+    function startRecording(canvasstream, audiostream) {
+      audiostream.getAudioTracks().forEach(at => {
+        canvasstream.addTrack(at)
+      });
+
+      const recorder_options = {
+        audioBitsPerSecond: 128000,
+        videoBitsPerSecond: 15000000
+      };
+
+      if(mimeType){
+        recorder_options.mimeType=mimeType;
+      }
+
+      let recorder = new MediaRecorder(canvasstream, recorder_options);
+      let data = [];
+
+      recorder.ondataavailable = event => data.push(event.data);
+      recorder.start();
+
+      console.log('recording', recorder.state);
+
+      document.addEventListener('wheel_win', function (e) {
+        setTimeout(() => {
+            if (recorder.state == "recording") {
+              recorder.stop();
+              canvasstream.getAudioTracks().forEach(at => {
+                at.stop()
+              });
+              audiostream.getAudioTracks().forEach(at => {
+                at.stop()
+              });
+            }
+          }
+          , 5000)
+      }, {once: true});
+
+      return new Promise((resolve, reject) => {
+        recorder.onstop = ()=> {
+          const _fileExtension = recorder.mimeType.split('/').pop().split(';').shift();
+          console.log(_fileExtension);
+
+          resolve({
+            data, fileType: {
+              mimeType     : recorder.mimeType,
+              fileExtension: _fileExtension === 'x-matroska' ? '.mkv' : '.' + _fileExtension
+            }
+          })
+        };
+        recorder.onerror = event => reject(event.name);
+      });
+
+    }
+
+    let segment;
+
+    screenshot.addEventListener('click', function (e) {
+      try{
+        $canvas.toBlob(function(_blob){
+          screenshot.setAttribute('href', URL.createObjectURL(_blob));
+          screenshot.setAttribute('download', 'WheelPoster_'+segment+'.png');
+        });
+      } catch (e) {
+          !!console && console.warn(e)
+      }
+    });
+
+    document.addEventListener('wheel_segmentchange', function (evt) {
+      segment = evt.detail.segment;
+    });
+
+    document.addEventListener('wheel_spinstart', function () {
+      navigator.mediaDevices.getUserMedia({
+        audio: true
+      }).then(audiostream => startRecording($canvas.captureStream(), audiostream))
+      .then(({data:recordedChunks, fileType}) => {
+        console.log(recordedChunks, fileType)
+
+        $root.append(_video, downloadButton);
+        $root.style.display = 'block';
+
+        let recordedBlob = new Blob(recordedChunks, {type: fileType.mimeType});
+        const _blob = URL.createObjectURL(recordedBlob);
+        _video.src = _blob;
+        downloadButton.href = _blob;
+        downloadButton.download = (params.get('output')||"RecordedVideo")+fileType.fileExtension;
+
+        console.log("Successfully recorded " + recordedBlob.size + " bytes of " +
+          recordedBlob.type + " media.");
+
+      })
+      .catch(console.log);
+    }, false);
+  });
+
+</script>
+</body>
+</html>
